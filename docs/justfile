@@ -1,0 +1,60 @@
+# Justfile for Sphinx documentation
+
+_sphinxopts := ""
+_sphinxbuild := "uv run sphinx-build"
+_sourcedir := "."
+_builddir := "./_build"
+
+set export
+CARGO_INSTALL_ROOT := ".cargo"
+
+# Default recipe - equivalent to "just" without arguments
+default: help
+
+# Show help
+help sphinxbuild=_sphinxbuild sourcedir=_sourcedir builddir=_builddir sphinxopts=_sphinxopts:
+    @{{sphinxbuild}} -M help "{{sourcedir}}" "{{builddir}}" {{sphinxopts}}
+
+# Ensure sphinx-rustdocgen has been installed
+ensure-rustdocgen:
+    cargo install sphinx-rustdocgen
+
+# Build the Rust extension
+build-extension:
+    @echo "Checking Rust toolchain..."
+    @which cargo > /dev/null || (echo "Error: Rust/Cargo not found. Please install Rust toolchain." && exit 1)
+    cd .. && uv run maturin develop
+
+# Clean build directory
+clean builddir=_builddir:
+    rm -rf {{builddir}}/*
+
+# Build HTML documentation
+html sphinxbuild=_sphinxbuild sourcedir=_sourcedir builddir=_builddir sphinxopts=_sphinxopts: ensure-rustdocgen build-extension
+    {{sphinxbuild}} -b html "{{sourcedir}}" "{{builddir}}/html" {{sphinxopts}}
+    @echo
+    @echo "Build finished. The HTML pages are in {{builddir}}/html."
+
+# Build HTML for with a specific out directory
+html_out builddir=_builddir: (html _sphinxbuild _sourcedir builddir _sphinxopts)
+
+# Build and serve documentation locally
+serve sphinxbuild=_sphinxbuild sourcedir=_sourcedir builddir=_builddir sphinxopts=_sphinxopts: (html sphinxbuild sourcedir builddir sphinxopts)
+    @echo "Serving documentation at http://localhost:8000"
+    cd {{builddir}}/html && python -m http.server 8000
+
+# Build documentation with live reload (requires sphinx-autobuild)
+livehtml sourcedir=_sourcedir builddir=_builddir sphinxopts=_sphinxopts: ensure-rustdocgen build-extension
+    uv run sphinx-autobuild "{{sourcedir}}" "{{builddir}}/html" {{sphinxopts}}
+
+# Check for broken links
+linkcheck sphinxbuild=_sphinxbuild sourcedir=_sourcedir builddir=_builddir sphinxopts=_sphinxopts:
+    {{sphinxbuild}} -b linkcheck "{{sourcedir}}" "{{builddir}}/linkcheck" {{sphinxopts}}
+
+# Build all formats
+all sphinxbuild=_sphinxbuild sourcedir=_sourcedir builddir=_builddir sphinxopts=_sphinxopts: (html sphinxbuild sourcedir builddir sphinxopts)
+
+# Catch-all recipe for Sphinx targets (equivalent to Make's % target)
+# Usage: just sphinx <target> [options]
+sphinx target sphinxbuild=_sphinxbuild sourcedir=_sourcedir builddir=_builddir sphinxopts=_sphinxopts *options="":
+    @{{sphinxbuild}} -M {{target}} "{{sourcedir}}" "{{builddir}}" {{sphinxopts}} {{options}}

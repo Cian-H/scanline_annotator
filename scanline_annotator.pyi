@@ -1,0 +1,3 @@
+from numpy import ndarray
+
+def annotate_scanlines(data: ndarray) -> ndarray: ...

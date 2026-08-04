@@ -1,0 +1,78 @@
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    groups:
+      rust-major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+      rust-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+    open-pull-requests-limit: 10
+    allow:
+      - dependency-type: "all"
+    assignees:
+      - "Cian-H"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+
+  - package-ecosystem: "pip"
+    directory: "/"
+    groups:
+      python-major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+      python-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+    open-pull-requests-limit: 10
+    allow:
+      - dependency-type: "all"
+    assignees:
+      - "Cian-H"
+    commit-message:
+      prefix: "pip-deps"
+      prefix-development: "pip-deps-dev"
+      include: "scope"
+
+  - package-ecosystem: "github-actions"
+    groups:
+      action-major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+      action-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
