@@ -10,9 +10,7 @@ impl From<rust_fn::AnnotatorError> for PyErr {
             rust_fn::AnnotatorError::ShapeError(e) => {
                 PyErr::new::<exceptions::PyValueError, _>(format!("{}", e))
             }
-            rust_fn::AnnotatorError::MiscError(e) => {
-                PyErr::new::<exceptions::PyValueError, _>(e)
-            }
+            rust_fn::AnnotatorError::MiscError(e) => PyErr::new::<exceptions::PyValueError, _>(e),
         }
     }
 }
