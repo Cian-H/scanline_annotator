@@ -25,18 +25,49 @@ def test_inputs():
     return np.random.randn(100, 4)
 
 
-def test_annotate_scanlines_stub(build_fixture, test_inputs) -> None:
+def test_annotate_scanlines_float64(build_fixture, test_inputs) -> None:
     from scanline_annotator import annotate_scanlines
 
-    output = annotate_scanlines(test_inputs)
+    x = test_inputs[:, 0].astype(np.float64)
+    y = test_inputs[:, 1].astype(np.float64)
+
+    output = annotate_scanlines(x, y)
     assert isinstance(output, np.ndarray)
-    assert output.shape == (test_inputs.shape[0], test_inputs.shape[1] + 1)
+    assert output.ndim == 1
+    assert output.shape == (x.shape[0],)
+    assert output.dtype == np.int32
+    assert (output > 0).sum() > 0
 
-    from pathlib import Path
 
-    expected_path = Path("tests/test_outputs.npz")
-    if expected_path.exists():
-        expected = np.load(expected_path)["data"]
-        np.testing.assert_allclose(output, expected)
-    else:
-        np.savez(expected_path, data=output)
+def test_annotate_scanlines_float32(build_fixture, test_inputs) -> None:
+    from scanline_annotator import annotate_scanlines
+
+    x = test_inputs[:, 0].astype(np.float32)
+    y = test_inputs[:, 1].astype(np.float32)
+
+    output = annotate_scanlines(x, y)
+    assert isinstance(output, np.ndarray)
+    assert output.ndim == 1
+    assert output.shape == (x.shape[0],)
+    assert output.dtype == np.int32
+    assert (output > 0).sum() > 0
+
+
+def test_annotate_scanlines_mismatched_length(build_fixture) -> None:
+    from scanline_annotator import annotate_scanlines
+
+    x = np.array([1.0, 2.0, 3.0], dtype=np.float64)
+    y = np.array([1.0, 2.0], dtype=np.float64)
+
+    with pytest.raises(ValueError, match="mismatch"):
+        _ = annotate_scanlines(x, y)
+
+
+def test_annotate_scanlines_invalid_type(build_fixture) -> None:
+    from scanline_annotator import annotate_scanlines
+
+    x = np.array([1, 2, 3], dtype=np.int64)
+    y = np.array([1, 2, 3], dtype=np.int64)
+
+    with pytest.raises(TypeError):
+        _ = annotate_scanlines(x, y)

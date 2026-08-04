@@ -312,6 +312,7 @@ dependencies = [
  "arbtest",
  "float-cmp",
  "ndarray",
+ "num-traits",
  "numpy",
  "pyo3",
  "rayon",

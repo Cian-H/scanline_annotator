@@ -1,4 +1,5 @@
-use ndarray::{Array2, ArrayView2, Axis};
+use ndarray::{Array1, ArrayView1};
+use num_traits::Float;
 use rayon::prelude::*;
 use thiserror::Error;
 
@@ -14,116 +15,63 @@ pub enum AnnotatorError {
 pub type Result<T> = std::result::Result<T, AnnotatorError>;
 
 #[derive(Clone, Debug)]
-struct FilteredPoint {
-    x: f64,
-    y: f64,
-    z: f64, // mean sensor (temperature)
+struct FilteredPoint<T> {
+    x: T,
+    y: T,
     start_idx: usize,
     end_idx: usize,
 }
 
 #[derive(Clone, Debug)]
-struct TurningPoint {
+struct TurningPoint<T> {
     y_idx: usize,
-    dist_prev_sq: f64,
-    hatch_dist_sq: f64,
-    x: f64,
-    y: f64,
+    dist_prev_sq: T,
+    hatch_dist_sq: T,
+    x: T,
+    y: T,
     start_idx: usize,
     end_idx: usize,
 }
 
-fn collapse_x_sequential(input: &ArrayView2<f64>) -> Vec<FilteredPoint> {
-    let n = input.nrows();
-    let ncols = input.ncols();
+fn collapse_x_sequential<T: Float + num_traits::FromPrimitive>(
+    x_slice: &[T],
+    y_slice: &[T],
+) -> Vec<FilteredPoint<T>> {
+    let n = x_slice.len();
     let mut x_collapsed = Vec::with_capacity(n / 2);
     if n == 0 {
         return x_collapsed;
     }
 
-    if let Some(slice) = input.as_slice() {
-        let mut current_x = slice[0];
-        let mut sum_y = slice[1];
-        let mut sum_temp = if ncols > 2 { slice[2] } else { 0.0 };
-        let mut count = 1.0;
-        let mut start_idx = 0;
-
-        for i in 1..n {
-            let offset = i * ncols;
-            let x = slice[offset];
-            if (x - current_x).abs() < f64::EPSILON {
-                sum_y += slice[offset + 1];
-                if ncols > 2 {
-                    sum_temp += slice[offset + 2];
-                }
-                count += 1.0;
-            } else {
-                x_collapsed.push(FilteredPoint {
-                    x: current_x,
-                    y: sum_y / count,
-                    z: sum_temp / count,
-                    start_idx,
-                    end_idx: i - 1,
-                });
-                current_x = x;
-                sum_y = slice[offset + 1];
-                sum_temp = if ncols > 2 { slice[offset + 2] } else { 0.0 };
-                count = 1.0;
-                start_idx = i;
-            }
-        }
-        x_collapsed.push(FilteredPoint {
-            x: current_x,
-            y: sum_y / count,
-            z: sum_temp / count,
-            start_idx,
-            end_idx: n - 1,
-        });
-
-        return x_collapsed;
-    }
-
-    let mut current_x = input[[0, 0]];
-    let mut sum_y = input[[0, 1]];
-    let mut sum_temp = if input.ncols() > 2 {
-        input[[0, 2]]
-    } else {
-        0.0
-    };
-    let mut count = 1.0;
+    let mut current_x = x_slice[0];
+    let mut sum_y = y_slice[0];
+    let mut count: usize = 1;
     let mut start_idx = 0;
+    let eps = T::epsilon();
 
     for i in 1..n {
-        let x = input[[i, 0]];
-        if (x - current_x).abs() < f64::EPSILON {
-            sum_y += input[[i, 1]];
-            if input.ncols() > 2 {
-                sum_temp += input[[i, 2]];
-            }
-            count += 1.0;
+        let x = x_slice[i];
+        if (x - current_x).abs() < eps {
+            sum_y = sum_y + y_slice[i];
+            count += 1;
         } else {
+            let count_t = T::from(count).unwrap();
             x_collapsed.push(FilteredPoint {
                 x: current_x,
-                y: sum_y / count,
-                z: sum_temp / count,
+                y: sum_y / count_t,
                 start_idx,
                 end_idx: i - 1,
             });
             current_x = x;
-            sum_y = input[[i, 1]];
-            sum_temp = if input.ncols() > 2 {
-                input[[i, 2]]
-            } else {
-                0.0
-            };
-            count = 1.0;
+            sum_y = y_slice[i];
+            count = 1;
             start_idx = i;
         }
     }
+    let count_t = T::from(count).unwrap();
     x_collapsed.push(FilteredPoint {
         x: current_x,
-        y: sum_y / count,
-        z: sum_temp / count,
+        y: sum_y / count_t,
         start_idx,
         end_idx: n - 1,
     });
@@ -131,22 +79,19 @@ fn collapse_x_sequential(input: &ArrayView2<f64>) -> Vec<FilteredPoint> {
     x_collapsed
 }
 
-fn collapse_x(input: &ArrayView2<f64>) -> Vec<FilteredPoint> {
-    let n = input.nrows();
-    let ncols = input.ncols();
+fn collapse_x<T: Float + num_traits::FromPrimitive + Send + Sync>(
+    x_slice: &[T],
+    y_slice: &[T],
+) -> Vec<FilteredPoint<T>> {
+    let n = x_slice.len();
     if n == 0 {
         return Vec::new();
     }
 
     let num_threads = rayon::current_num_threads();
     if num_threads <= 1 || n < 500_000 {
-        return collapse_x_sequential(input);
+        return collapse_x_sequential(x_slice, y_slice);
     }
-
-    let in_slice = match input.as_slice() {
-        Some(s) => s,
-        None => return collapse_x_sequential(input),
-    };
 
     let chunk_size = n.div_ceil(num_threads);
     let chunks: Vec<(usize, usize)> = (0..n)
@@ -154,7 +99,7 @@ fn collapse_x(input: &ArrayView2<f64>) -> Vec<FilteredPoint> {
         .map(|start| (start, (start + chunk_size).min(n)))
         .collect();
 
-    let sub_results: Vec<Vec<FilteredPoint>> = chunks
+    let sub_results: Vec<Vec<FilteredPoint<T>>> = chunks
         .into_par_iter()
         .map(|(start_row, end_row)| {
             let mut x_collapsed = Vec::with_capacity((end_row - start_row) / 2);
@@ -162,44 +107,35 @@ fn collapse_x(input: &ArrayView2<f64>) -> Vec<FilteredPoint> {
                 return x_collapsed;
             }
 
-            let mut current_x = in_slice[start_row * ncols];
-            let mut sum_y = in_slice[start_row * ncols + 1];
-            let mut sum_temp = if ncols > 2 {
-                in_slice[start_row * ncols + 2]
-            } else {
-                0.0
-            };
-            let mut count = 1.0;
+            let mut current_x = x_slice[start_row];
+            let mut sum_y = y_slice[start_row];
+            let mut count: usize = 1;
             let mut start_idx = start_row;
+            let eps = T::epsilon();
 
             for i in (start_row + 1)..end_row {
-                let offset = i * ncols;
-                let x = in_slice[offset];
-                if (x - current_x).abs() < f64::EPSILON {
-                    sum_y += in_slice[offset + 1];
-                    if ncols > 2 {
-                        sum_temp += in_slice[offset + 2];
-                    }
-                    count += 1.0;
+                let x = x_slice[i];
+                if (x - current_x).abs() < eps {
+                    sum_y = sum_y + y_slice[i];
+                    count += 1;
                 } else {
+                    let count_t = T::from(count).unwrap();
                     x_collapsed.push(FilteredPoint {
                         x: current_x,
-                        y: sum_y / count,
-                        z: sum_temp / count,
+                        y: sum_y / count_t,
                         start_idx,
                         end_idx: i - 1,
                     });
                     current_x = x;
-                    sum_y = in_slice[offset + 1];
-                    sum_temp = if ncols > 2 { in_slice[offset + 2] } else { 0.0 };
-                    count = 1.0;
+                    sum_y = y_slice[i];
+                    count = 1;
                     start_idx = i;
                 }
             }
+            let count_t = T::from(count).unwrap();
             x_collapsed.push(FilteredPoint {
                 x: current_x,
-                y: sum_y / count,
-                z: sum_temp / count,
+                y: sum_y / count_t,
                 start_idx,
                 end_idx: end_row - 1,
             });
@@ -209,18 +145,21 @@ fn collapse_x(input: &ArrayView2<f64>) -> Vec<FilteredPoint> {
         .collect();
 
     let total_len: usize = sub_results.iter().map(|v| v.len()).sum();
-    let mut merged: Vec<FilteredPoint> = Vec::with_capacity(total_len);
+    let mut merged: Vec<FilteredPoint<T>> = Vec::with_capacity(total_len);
+    let eps = T::epsilon();
 
     for sub in sub_results {
         for pt in sub {
             if let Some(last) = merged.last_mut()
-                && (pt.x - last.x).abs() < f64::EPSILON {
+                && (pt.x - last.x).abs() < eps {
                     let total_count = (last.end_idx - last.start_idx + 1) as f64;
                     let pt_count = (pt.end_idx - pt.start_idx + 1) as f64;
                     let new_count = total_count + pt_count;
 
-                    last.y = (last.y * total_count + pt.y * pt_count) / new_count;
-                    last.z = (last.z * total_count + pt.z * pt_count) / new_count;
+                    let last_y_f = last.y.to_f64().unwrap();
+                    let pt_y_f = pt.y.to_f64().unwrap();
+                    let new_y = (last_y_f * total_count + pt_y_f * pt_count) / new_count;
+                    last.y = T::from(new_y).unwrap();
                     last.end_idx = pt.end_idx;
                     continue;
                 }
@@ -231,7 +170,9 @@ fn collapse_x(input: &ArrayView2<f64>) -> Vec<FilteredPoint> {
     merged
 }
 
-fn collapse_y_sequential(x_collapsed: &[FilteredPoint]) -> Vec<FilteredPoint> {
+fn collapse_y_sequential<T: Float + num_traits::FromPrimitive>(
+    x_collapsed: &[FilteredPoint<T>],
+) -> Vec<FilteredPoint<T>> {
     let n = x_collapsed.len();
     let mut y_collapsed = Vec::with_capacity(n);
     if n == 0 {
@@ -240,35 +181,33 @@ fn collapse_y_sequential(x_collapsed: &[FilteredPoint]) -> Vec<FilteredPoint> {
 
     let mut current_y = x_collapsed[0].y;
     let mut sum_x = x_collapsed[0].x;
-    let mut sum_temp = x_collapsed[0].z;
-    let mut count = 1.0;
+    let mut count: usize = 1;
     let mut start_idx = x_collapsed[0].start_idx;
+    let eps = T::epsilon();
 
     for i in 1..n {
         let y = x_collapsed[i].y;
-        if (y - current_y).abs() < f64::EPSILON {
-            sum_x += x_collapsed[i].x;
-            sum_temp += x_collapsed[i].z;
-            count += 1.0;
+        if (y - current_y).abs() < eps {
+            sum_x = sum_x + x_collapsed[i].x;
+            count += 1;
         } else {
+            let count_t = T::from(count).unwrap();
             y_collapsed.push(FilteredPoint {
-                x: sum_x / count,
+                x: sum_x / count_t,
                 y: current_y,
-                z: sum_temp / count,
                 start_idx,
                 end_idx: x_collapsed[i - 1].end_idx,
             });
             current_y = y;
             sum_x = x_collapsed[i].x;
-            sum_temp = x_collapsed[i].z;
-            count = 1.0;
+            count = 1;
             start_idx = x_collapsed[i].start_idx;
         }
     }
+    let count_t = T::from(count).unwrap();
     y_collapsed.push(FilteredPoint {
-        x: sum_x / count,
+        x: sum_x / count_t,
         y: current_y,
-        z: sum_temp / count,
         start_idx,
         end_idx: x_collapsed[n - 1].end_idx,
     });
@@ -276,7 +215,9 @@ fn collapse_y_sequential(x_collapsed: &[FilteredPoint]) -> Vec<FilteredPoint> {
     y_collapsed
 }
 
-fn collapse_y(x_collapsed: &[FilteredPoint]) -> Vec<FilteredPoint> {
+fn collapse_y<T: Float + num_traits::FromPrimitive + Send + Sync>(
+    x_collapsed: &[FilteredPoint<T>],
+) -> Vec<FilteredPoint<T>> {
     let n = x_collapsed.len();
     if n == 0 {
         return Vec::new();
@@ -293,7 +234,7 @@ fn collapse_y(x_collapsed: &[FilteredPoint]) -> Vec<FilteredPoint> {
         .map(|start| (start, (start + chunk_size).min(n)))
         .collect();
 
-    let sub_results: Vec<Vec<FilteredPoint>> = chunks
+    let sub_results: Vec<Vec<FilteredPoint<T>>> = chunks
         .into_par_iter()
         .map(|(start_row, end_row)| {
             let mut y_collapsed = Vec::with_capacity(end_row - start_row);
@@ -303,35 +244,33 @@ fn collapse_y(x_collapsed: &[FilteredPoint]) -> Vec<FilteredPoint> {
 
             let mut current_y = x_collapsed[start_row].y;
             let mut sum_x = x_collapsed[start_row].x;
-            let mut sum_temp = x_collapsed[start_row].z;
-            let mut count = 1.0;
+            let mut count: usize = 1;
             let mut start_idx = x_collapsed[start_row].start_idx;
+            let eps = T::epsilon();
 
             for i in (start_row + 1)..end_row {
                 let y = x_collapsed[i].y;
-                if (y - current_y).abs() < f64::EPSILON {
-                    sum_x += x_collapsed[i].x;
-                    sum_temp += x_collapsed[i].z;
-                    count += 1.0;
+                if (y - current_y).abs() < eps {
+                    sum_x = sum_x + x_collapsed[i].x;
+                    count += 1;
                 } else {
+                    let count_t = T::from(count).unwrap();
                     y_collapsed.push(FilteredPoint {
-                        x: sum_x / count,
+                        x: sum_x / count_t,
                         y: current_y,
-                        z: sum_temp / count,
                         start_idx,
                         end_idx: x_collapsed[i - 1].end_idx,
                     });
                     current_y = y;
                     sum_x = x_collapsed[i].x;
-                    sum_temp = x_collapsed[i].z;
-                    count = 1.0;
+                    count = 1;
                     start_idx = x_collapsed[i].start_idx;
                 }
             }
+            let count_t = T::from(count).unwrap();
             y_collapsed.push(FilteredPoint {
-                x: sum_x / count,
+                x: sum_x / count_t,
                 y: current_y,
-                z: sum_temp / count,
                 start_idx,
                 end_idx: x_collapsed[end_row - 1].end_idx,
             });
@@ -341,19 +280,21 @@ fn collapse_y(x_collapsed: &[FilteredPoint]) -> Vec<FilteredPoint> {
         .collect();
 
     let total_len: usize = sub_results.iter().map(|v| v.len()).sum();
-    let mut merged: Vec<FilteredPoint> = Vec::with_capacity(total_len);
+    let mut merged: Vec<FilteredPoint<T>> = Vec::with_capacity(total_len);
+    let eps = T::epsilon();
 
     for sub in sub_results {
         for pt in sub {
             if let Some(last) = merged.last_mut()
-                && (pt.y - last.y).abs() < f64::EPSILON {
-                    // Need to merge
-                    let total_count = (last.end_idx - last.start_idx + 1) as f64; // Approximated weight for x collapse
+                && (pt.y - last.y).abs() < eps {
+                    let total_count = (last.end_idx - last.start_idx + 1) as f64;
                     let pt_count = (pt.end_idx - pt.start_idx + 1) as f64;
                     let new_count = total_count + pt_count;
 
-                    last.x = (last.x * total_count + pt.x * pt_count) / new_count;
-                    last.z = (last.z * total_count + pt.z * pt_count) / new_count;
+                    let last_x_f = last.x.to_f64().unwrap();
+                    let pt_x_f = pt.x.to_f64().unwrap();
+                    let new_x = (last_x_f * total_count + pt_x_f * pt_count) / new_count;
+                    last.x = T::from(new_x).unwrap();
                     last.end_idx = pt.end_idx;
                     continue;
                 }
@@ -364,8 +305,9 @@ fn collapse_y(x_collapsed: &[FilteredPoint]) -> Vec<FilteredPoint> {
     merged
 }
 
-fn direction(a: &FilteredPoint, b: &FilteredPoint, c: f64) -> f64 {
-    if (a.x - b.x).abs() < f64::EPSILON || (a.y - b.y).abs() < f64::EPSILON {
+fn direction<T: Float + num_traits::FromPrimitive>(a: &FilteredPoint<T>, b: &FilteredPoint<T>, c: T) -> T {
+    let eps = T::epsilon();
+    if (a.x - b.x).abs() < eps || (a.y - b.y).abs() < eps {
         c
     } else if a.x < b.x {
         (b.y - a.y) / (b.x - a.x)
@@ -374,69 +316,67 @@ fn direction(a: &FilteredPoint, b: &FilteredPoint, c: f64) -> f64 {
     }
 }
 
-fn dist_fp_sq(a: &TurningPoint, b: &FilteredPoint) -> f64 {
+fn dist_fp_sq<T: Float>(a: &TurningPoint<T>, b: &FilteredPoint<T>) -> T {
     let dx = a.x - b.x;
     let dy = a.y - b.y;
     dx * dx + dy * dy
 }
 
-fn hatch_dist_sq(a: &TurningPoint, b: &TurningPoint, c: &FilteredPoint) -> f64 {
+fn hatch_dist_sq<T: Float>(a: &TurningPoint<T>, b: &TurningPoint<T>, c: &FilteredPoint<T>) -> T {
+    let eps = T::epsilon();
     let dx = a.x - b.x;
     let dy = a.y - b.y;
-    if dx.abs() < f64::EPSILON {
+    if dx.abs() < eps {
         let dx_c = c.x - a.x;
         dx_c * dx_c
     } else {
         let m = dy / dx;
         let c_line = b.y - m * b.x;
         let num = m * c.x - c.y + c_line;
-        (num * num) / (m * m + 1.0)
+        (num * num) / (m * m + T::one())
     }
 }
 
-fn segment_vector(h: &[TurningPoint], i: usize) -> (f64, f64) {
+fn segment_vector<T: Float>(h: &[TurningPoint<T>], i: usize) -> (T, T) {
     if i == 0 {
-        (0.0, 0.0)
+        (T::zero(), T::zero())
     } else {
         (h[i].x - h[i - 1].x, h[i].y - h[i - 1].y)
     }
 }
 
-fn is_180_turn_vec(v1: (f64, f64), v2: (f64, f64)) -> bool {
+fn is_180_turn_vec<T: Float + num_traits::FromPrimitive>(v1: (T, T), v2: (T, T)) -> bool {
     let (dx1, dy1) = v1;
     let (dx2, dy2) = v2;
 
     let dp = dx1 * dx2 + dy1 * dy2;
-    if dp >= 0.0 {
+    if dp >= T::zero() {
         return false;
-    } // Must be pointing opposite directions
+    }
 
     let l1_sq = dx1 * dx1 + dy1 * dy1;
     let l2_sq = dx2 * dx2 + dy2 * dy2;
 
-    // Require a tight 180 flip (angle > 150 deg). cos(150)^2 = 0.75
-    (dp * dp) > 0.75 * (l1_sq * l2_sq)
+    let threshold = T::from(0.75).unwrap();
+    (dp * dp) > threshold * (l1_sq * l2_sq)
 }
 
-fn is_rastering(h: &[TurningPoint], i: usize, median_hatch_sq: f64) -> bool {
+fn is_rastering<T: Float + num_traits::FromPrimitive>(h: &[TurningPoint<T>], i: usize, median_hatch_sq: T) -> bool {
     let tp = &h[i];
 
-    // 1. Must not be an excessively long jump (e.g., crossing the whole plate).
-    // Bound dynamically by the median hatch spacing (minimum of 1mm^2 to prevent over-constraining).
-    let max_jump_sq = (100.0 * median_hatch_sq).max(1.0);
+    let max_jump_sq = (T::from(100.0).unwrap() * median_hatch_sq).max(T::one());
     if tp.dist_prev_sq > max_jump_sq {
         return false;
     }
 
-    // 2. The turnaround must be roughly perpendicular to the scanline.
-    // For contours, they trace end-to-end, making them collinear (hatch_dist approaches 0).
-    if tp.hatch_dist_sq < 0.5 * tp.dist_prev_sq {
+    let half = T::from(0.5).unwrap();
+    if tp.hatch_dist_sq < half * tp.dist_prev_sq {
         return false;
     }
 
     let mut flip_prev = false;
     let mut flip_next = false;
-    
+
     if i > 1 || i + 1 < h.len() {
         let v_curr = segment_vector(h, i);
         if i > 1 {
@@ -454,16 +394,28 @@ fn is_rastering(h: &[TurningPoint], i: usize, median_hatch_sq: f64) -> bool {
 
 /// Annotates in-memory PBF raster scanline data.
 ///
-/// Accepts a 2D array view from Python/NumPy and returns processed scanline data.
-pub fn annotate_scanlines(input: ArrayView2<f64>) -> Result<Array2<f64>> {
-    if input.ndim() != 2 {
+/// Accepts 1D views of x and y coordinates, returning scanline assignments (int32 array).
+pub fn annotate_scanlines<T: Float + num_traits::FromPrimitive + Send + Sync>(
+    x: ArrayView1<T>,
+    y: ArrayView1<T>,
+) -> Result<Array1<i32>> {
+    if x.len() != y.len() {
         return Err(AnnotatorError::MiscError(format!(
-            "Expected 2D array, got {}D array",
-            input.ndim()
+            "Input x and y length mismatch: {} vs {}",
+            x.len(),
+            y.len()
         )));
     }
 
-    let x_collapsed = collapse_x(&input);
+    let n_total = x.len();
+    if n_total == 0 {
+        return Ok(Array1::<i32>::zeros(0));
+    }
+
+    let x_slice = x.as_slice().ok_or_else(|| AnnotatorError::MiscError("x array must be contiguous".to_string()))?;
+    let y_slice = y.as_slice().ok_or_else(|| AnnotatorError::MiscError("y array must be contiguous".to_string()))?;
+
+    let x_collapsed = collapse_x(x_slice, y_slice);
     let y_collapsed = collapse_y(&x_collapsed);
 
     let n = y_collapsed.len();
@@ -471,13 +423,13 @@ pub fn annotate_scanlines(input: ArrayView2<f64>) -> Result<Array2<f64>> {
     let mut set_b = Vec::new();
 
     if n > 1 {
-        let mut d = vec![0.0; n - 1];
-        d[0] = direction(&y_collapsed[0], &y_collapsed[1], 1.0);
+        let mut d = vec![T::zero(); n - 1];
+        d[0] = direction(&y_collapsed[0], &y_collapsed[1], T::one());
 
         let tp_init = TurningPoint {
             y_idx: 0,
-            dist_prev_sq: 0.0,
-            hatch_dist_sq: 0.0,
+            dist_prev_sq: T::zero(),
+            hatch_dist_sq: T::zero(),
             x: y_collapsed[0].x,
             y: y_collapsed[0].y,
             start_idx: y_collapsed[0].start_idx,
@@ -496,7 +448,7 @@ pub fn annotate_scanlines(input: ArrayView2<f64>) -> Result<Array2<f64>> {
             if d[index].signum() != d[index - 1].signum() {
                 let current_fp = &y_collapsed[index];
 
-                if d[index] < 0.0 {
+                if d[index] < T::zero() {
                     let last_a = set_a.last().unwrap();
                     let last_b = set_b.last().unwrap();
                     let dist_sq = dist_fp_sq(last_a, current_fp);
@@ -549,16 +501,17 @@ pub fn annotate_scanlines(input: ArrayView2<f64>) -> Result<Array2<f64>> {
     h.sort_by_key(|tp| tp.y_idx);
 
     let median_hatch_sq = if h.is_empty() {
-        0.01 // Safe fallback
+        T::from(0.01).unwrap()
     } else {
-        let mut hatch_dists: Vec<f64> = h
+        let thresh = T::from(1e-8).unwrap();
+        let mut hatch_dists: Vec<T> = h
             .iter()
             .map(|tp| tp.hatch_dist_sq)
-            .filter(|&d| d > 1e-8) // Exclude nearly perfectly collinear noise
+            .filter(|&d| d > thresh)
             .collect();
 
         if hatch_dists.is_empty() {
-            0.01
+            T::from(0.01).unwrap()
         } else {
             let mid = hatch_dists.len() / 2;
             let (_, median, _) = hatch_dists
@@ -567,8 +520,8 @@ pub fn annotate_scanlines(input: ArrayView2<f64>) -> Result<Array2<f64>> {
         }
     };
 
-    let mut scanline_assignments = vec![-1.0; input.nrows()];
-    let mut scanline_id = 1.0;
+    let mut scanline_assignments = vec![-1i32; n_total];
+    let mut scanline_id: i32 = 1;
     let mut in_raster_block = false;
     let mut last_turn_start = 0;
 
@@ -587,7 +540,7 @@ pub fn annotate_scanlines(input: ArrayView2<f64>) -> Result<Array2<f64>> {
                         }
                     }
                 }
-                scanline_id += 1.0;
+                scanline_id += 1;
                 last_turn_start = mid + 1;
             } else {
                 let start = last_turn_start;
@@ -599,7 +552,7 @@ pub fn annotate_scanlines(input: ArrayView2<f64>) -> Result<Array2<f64>> {
                         }
                     }
                 }
-                scanline_id += 1.0;
+                scanline_id += 1;
                 last_turn_start = mid + 1;
             }
         } else {
@@ -613,46 +566,33 @@ pub fn annotate_scanlines(input: ArrayView2<f64>) -> Result<Array2<f64>> {
                         }
                     }
                 }
-                scanline_id += 1.0;
+                scanline_id += 1;
                 in_raster_block = false;
             }
         }
     }
 
-    // Allocate output array with M+1 columns
-    let nrows = input.nrows();
-    let ncols = input.ncols();
-    let mut out_array = Array2::<f64>::zeros((nrows, ncols + 1));
-
-    let in_slice = input.as_slice();
-    out_array
-        .axis_iter_mut(Axis(0))
-        .into_par_iter()
-        .enumerate()
-        .for_each(|(i, mut row)| {
-            if let (Some(slice), Some(row_slice)) = (in_slice, row.as_slice_mut()) {
-                let src = &slice[i * ncols..(i + 1) * ncols];
-                row_slice[..ncols].copy_from_slice(src);
-            } else {
-                for j in 0..ncols {
-                    row[j] = input[[i, j]];
-                }
-            }
-            row[ncols] = scanline_assignments[i];
-        });
-
-    Ok(out_array)
+    Ok(Array1::from_vec(scanline_assignments))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ndarray::Array2;
+    use ndarray::Array1;
 
     #[test]
-    fn test_annotate_scanlines_stub() {
-        let input = Array2::<f64>::zeros((100, 4));
-        let result = annotate_scanlines(input.view()).unwrap();
-        assert_eq!(result.shape(), &[100, 5]);
+    fn test_annotate_scanlines_stub_f64() {
+        let x = Array1::<f64>::zeros(100);
+        let y = Array1::<f64>::zeros(100);
+        let result = annotate_scanlines(x.view(), y.view()).unwrap();
+        assert_eq!(result.len(), 100);
+    }
+
+    #[test]
+    fn test_annotate_scanlines_stub_f32() {
+        let x = Array1::<f32>::zeros(100);
+        let y = Array1::<f32>::zeros(100);
+        let result = annotate_scanlines(x.view(), y.view()).unwrap();
+        assert_eq!(result.len(), 100);
     }
 }

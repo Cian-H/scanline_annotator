@@ -1,4 +1,4 @@
-use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
+use numpy::{PyArray1, PyReadonlyArray1, ToPyArray};
 use pyo3::exceptions;
 use pyo3::prelude::*;
 
@@ -15,22 +15,37 @@ impl From<rust_fn::AnnotatorError> for PyErr {
     }
 }
 
-/// Annotate in-memory scanline data.
+/// Annotate in-memory scanline data from 1D x and y coordinate arrays.
 ///
 /// Args:
-///     data (ndarray): 2D numpy array of scanline data (shape N x M).
+///     x (ndarray): 1D numpy array of x-coordinates (float32 or float64).
+///     y (ndarray): 1D numpy array of y-coordinates (float32 or float64).
 ///
 /// Returns:
-///     ndarray: Processed and annotated scanline data array.
+///     ndarray: 1D numpy array of scanline_id assignments (int32).
 #[pyfunction]
 fn annotate_scanlines<'py>(
     py: Python<'py>,
-    data: PyReadonlyArray2<'py, f64>,
-) -> PyResult<Bound<'py, PyArray2<f64>>> {
-    let array_view = data.as_array();
-    let rs_result = rust_fn::annotate_scanlines(array_view)?;
-    let py_result = rs_result.to_pyarray(py);
-    Ok(py_result)
+    x: &Bound<'py, PyAny>,
+    y: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyArray1<i32>>> {
+    if let (Ok(x_f64), Ok(y_f64)) = (
+        x.extract::<PyReadonlyArray1<'py, f64>>(),
+        y.extract::<PyReadonlyArray1<'py, f64>>(),
+    ) {
+        let rs_result = rust_fn::annotate_scanlines(x_f64.as_array(), y_f64.as_array())?;
+        Ok(rs_result.to_pyarray(py))
+    } else if let (Ok(x_f32), Ok(y_f32)) = (
+        x.extract::<PyReadonlyArray1<'py, f32>>(),
+        y.extract::<PyReadonlyArray1<'py, f32>>(),
+    ) {
+        let rs_result = rust_fn::annotate_scanlines(x_f32.as_array(), y_f32.as_array())?;
+        Ok(rs_result.to_pyarray(py))
+    } else {
+        Err(PyErr::new::<exceptions::PyTypeError, _>(
+            "x and y must both be 1D numpy arrays of float64 or float32 type",
+        ))
+    }
 }
 
 /// A library for processing and annotating raster scanlines in powder bed fusion data.

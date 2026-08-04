@@ -10,6 +10,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 ndarray = { version = "0.17", features = ["rayon"] }
+num-traits = "0.2"
 numpy = "0.29.0"
 pyo3 = { version = "0.29.0", features = ["abi3-py311", "extension-module"] }
 rayon = "1.10.0"
