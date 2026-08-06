@@ -21,7 +21,7 @@ def build_fixture() -> None:
 def test_inputs():
     npz_path = Path("tests/test_inputs.npz")
     if npz_path.exists():
-        return np.load(npz_path)["data"]
+        return np.load(npz_path, allow_pickle=True)["data"]
     return np.random.randn(100, 4)
 
 
