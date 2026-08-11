@@ -36,11 +36,11 @@ struct TurningPoint<T> {
 fn collapse_x_sequential<T: Float + num_traits::FromPrimitive>(
     x_slice: &[T],
     y_slice: &[T],
-) -> Vec<FilteredPoint<T>> {
+) -> Result<Vec<FilteredPoint<T>>> {
     let n = x_slice.len();
     let mut x_collapsed = Vec::with_capacity(n / 2);
     if n == 0 {
-        return x_collapsed;
+        return Ok(x_collapsed);
     }
 
     let mut current_x = x_slice[0];
@@ -55,7 +55,7 @@ fn collapse_x_sequential<T: Float + num_traits::FromPrimitive>(
             sum_y = sum_y + y_slice[i];
             count += 1;
         } else {
-            let count_t = T::from(count).unwrap();
+            let count_t = T::from(count).ok_or_else(|| AnnotatorError::MiscError("Numeric cast failed".into()))?;
             x_collapsed.push(FilteredPoint {
                 x: current_x,
                 y: sum_y / count_t,
@@ -68,7 +68,7 @@ fn collapse_x_sequential<T: Float + num_traits::FromPrimitive>(
             start_idx = i;
         }
     }
-    let count_t = T::from(count).unwrap();
+    let count_t = T::from(count).ok_or_else(|| AnnotatorError::MiscError("Numeric cast failed".into()))?;
     x_collapsed.push(FilteredPoint {
         x: current_x,
         y: sum_y / count_t,
@@ -76,16 +76,16 @@ fn collapse_x_sequential<T: Float + num_traits::FromPrimitive>(
         end_idx: n - 1,
     });
 
-    x_collapsed
+    Ok(x_collapsed)
 }
 
 fn collapse_x<T: Float + num_traits::FromPrimitive + Send + Sync>(
     x_slice: &[T],
     y_slice: &[T],
-) -> Vec<FilteredPoint<T>> {
+) -> Result<Vec<FilteredPoint<T>>> {
     let n = x_slice.len();
     if n == 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     let num_threads = rayon::current_num_threads();
@@ -101,10 +101,10 @@ fn collapse_x<T: Float + num_traits::FromPrimitive + Send + Sync>(
 
     let sub_results: Vec<Vec<FilteredPoint<T>>> = chunks
         .into_par_iter()
-        .map(|(start_row, end_row)| {
+        .map(|(start_row, end_row)| -> Result<Vec<FilteredPoint<T>>> {
             let mut x_collapsed = Vec::with_capacity((end_row - start_row) / 2);
             if start_row >= end_row {
-                return x_collapsed;
+                return Ok(x_collapsed);
             }
 
             let mut current_x = x_slice[start_row];
@@ -119,7 +119,7 @@ fn collapse_x<T: Float + num_traits::FromPrimitive + Send + Sync>(
                     sum_y = sum_y + y_slice[i];
                     count += 1;
                 } else {
-                    let count_t = T::from(count).unwrap();
+                    let count_t = T::from(count).ok_or_else(|| AnnotatorError::MiscError("Numeric cast failed".into()))?;
                     x_collapsed.push(FilteredPoint {
                         x: current_x,
                         y: sum_y / count_t,
@@ -132,7 +132,7 @@ fn collapse_x<T: Float + num_traits::FromPrimitive + Send + Sync>(
                     start_idx = i;
                 }
             }
-            let count_t = T::from(count).unwrap();
+            let count_t = T::from(count).ok_or_else(|| AnnotatorError::MiscError("Numeric cast failed".into()))?;
             x_collapsed.push(FilteredPoint {
                 x: current_x,
                 y: sum_y / count_t,
@@ -140,9 +140,9 @@ fn collapse_x<T: Float + num_traits::FromPrimitive + Send + Sync>(
                 end_idx: end_row - 1,
             });
 
-            x_collapsed
+            Ok(x_collapsed)
         })
-        .collect();
+        .collect::<Result<Vec<Vec<FilteredPoint<T>>>>>()?;
 
     let total_len: usize = sub_results.iter().map(|v| v.len()).sum();
     let mut merged: Vec<FilteredPoint<T>> = Vec::with_capacity(total_len);
@@ -156,10 +156,10 @@ fn collapse_x<T: Float + num_traits::FromPrimitive + Send + Sync>(
                     let pt_count = (pt.end_idx - pt.start_idx + 1) as f64;
                     let new_count = total_count + pt_count;
 
-                    let last_y_f = last.y.to_f64().unwrap();
-                    let pt_y_f = pt.y.to_f64().unwrap();
+                    let last_y_f = last.y.to_f64().ok_or_else(|| AnnotatorError::MiscError("Numeric cast failed".into()))?;
+                    let pt_y_f = pt.y.to_f64().ok_or_else(|| AnnotatorError::MiscError("Numeric cast failed".into()))?;
                     let new_y = (last_y_f * total_count + pt_y_f * pt_count) / new_count;
-                    last.y = T::from(new_y).unwrap();
+                    last.y = T::from(new_y).ok_or_else(|| AnnotatorError::MiscError("Numeric cast failed".into()))?;
                     last.end_idx = pt.end_idx;
                     continue;
                 }
@@ -168,16 +168,16 @@ fn collapse_x<T: Float + num_traits::FromPrimitive + Send + Sync>(
         }
     }
 
-    merged
+    Ok(merged)
 }
 
 fn collapse_y_sequential<T: Float + num_traits::FromPrimitive>(
     x_collapsed: &[FilteredPoint<T>],
-) -> Vec<FilteredPoint<T>> {
+) -> Result<Vec<FilteredPoint<T>>> {
     let n = x_collapsed.len();
     let mut y_collapsed = Vec::with_capacity(n);
     if n == 0 {
-        return y_collapsed;
+        return Ok(y_collapsed);
     }
 
     let mut current_y = x_collapsed[0].y;
@@ -192,7 +192,7 @@ fn collapse_y_sequential<T: Float + num_traits::FromPrimitive>(
             sum_x = sum_x + x_collapsed[i].x;
             count += 1;
         } else {
-            let count_t = T::from(count).unwrap();
+            let count_t = T::from(count).ok_or_else(|| AnnotatorError::MiscError("Numeric cast failed".into()))?;
             y_collapsed.push(FilteredPoint {
                 x: sum_x / count_t,
                 y: current_y,
@@ -205,7 +205,7 @@ fn collapse_y_sequential<T: Float + num_traits::FromPrimitive>(
             start_idx = x_collapsed[i].start_idx;
         }
     }
-    let count_t = T::from(count).unwrap();
+    let count_t = T::from(count).ok_or_else(|| AnnotatorError::MiscError("Numeric cast failed".into()))?;
     y_collapsed.push(FilteredPoint {
         x: sum_x / count_t,
         y: current_y,
@@ -213,15 +213,15 @@ fn collapse_y_sequential<T: Float + num_traits::FromPrimitive>(
         end_idx: x_collapsed[n - 1].end_idx,
     });
 
-    y_collapsed
+    Ok(y_collapsed)
 }
 
 fn collapse_y<T: Float + num_traits::FromPrimitive + Send + Sync>(
     x_collapsed: &[FilteredPoint<T>],
-) -> Vec<FilteredPoint<T>> {
+) -> Result<Vec<FilteredPoint<T>>> {
     let n = x_collapsed.len();
     if n == 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     let num_threads = rayon::current_num_threads();
@@ -237,10 +237,10 @@ fn collapse_y<T: Float + num_traits::FromPrimitive + Send + Sync>(
 
     let sub_results: Vec<Vec<FilteredPoint<T>>> = chunks
         .into_par_iter()
-        .map(|(start_row, end_row)| {
+        .map(|(start_row, end_row)| -> Result<Vec<FilteredPoint<T>>> {
             let mut y_collapsed = Vec::with_capacity(end_row - start_row);
             if start_row >= end_row {
-                return y_collapsed;
+                return Ok(y_collapsed);
             }
 
             let mut current_y = x_collapsed[start_row].y;
@@ -255,7 +255,7 @@ fn collapse_y<T: Float + num_traits::FromPrimitive + Send + Sync>(
                     sum_x = sum_x + x_collapsed[i].x;
                     count += 1;
                 } else {
-                    let count_t = T::from(count).unwrap();
+                    let count_t = T::from(count).ok_or_else(|| AnnotatorError::MiscError("Numeric cast failed".into()))?;
                     y_collapsed.push(FilteredPoint {
                         x: sum_x / count_t,
                         y: current_y,
@@ -268,7 +268,7 @@ fn collapse_y<T: Float + num_traits::FromPrimitive + Send + Sync>(
                     start_idx = x_collapsed[i].start_idx;
                 }
             }
-            let count_t = T::from(count).unwrap();
+            let count_t = T::from(count).ok_or_else(|| AnnotatorError::MiscError("Numeric cast failed".into()))?;
             y_collapsed.push(FilteredPoint {
                 x: sum_x / count_t,
                 y: current_y,
@@ -276,9 +276,9 @@ fn collapse_y<T: Float + num_traits::FromPrimitive + Send + Sync>(
                 end_idx: x_collapsed[end_row - 1].end_idx,
             });
 
-            y_collapsed
+            Ok(y_collapsed)
         })
-        .collect();
+        .collect::<Result<Vec<Vec<FilteredPoint<T>>>>>()?;
 
     let total_len: usize = sub_results.iter().map(|v| v.len()).sum();
     let mut merged: Vec<FilteredPoint<T>> = Vec::with_capacity(total_len);
@@ -292,10 +292,10 @@ fn collapse_y<T: Float + num_traits::FromPrimitive + Send + Sync>(
                     let pt_count = (pt.end_idx - pt.start_idx + 1) as f64;
                     let new_count = total_count + pt_count;
 
-                    let last_x_f = last.x.to_f64().unwrap();
-                    let pt_x_f = pt.x.to_f64().unwrap();
+                    let last_x_f = last.x.to_f64().ok_or_else(|| AnnotatorError::MiscError("Numeric cast failed".into()))?;
+                    let pt_x_f = pt.x.to_f64().ok_or_else(|| AnnotatorError::MiscError("Numeric cast failed".into()))?;
                     let new_x = (last_x_f * total_count + pt_x_f * pt_count) / new_count;
-                    last.x = T::from(new_x).unwrap();
+                    last.x = T::from(new_x).ok_or_else(|| AnnotatorError::MiscError("Numeric cast failed".into()))?;
                     last.end_idx = pt.end_idx;
                     continue;
                 }
@@ -304,7 +304,7 @@ fn collapse_y<T: Float + num_traits::FromPrimitive + Send + Sync>(
         }
     }
 
-    merged
+    Ok(merged)
 }
 
 fn direction<T: Float + num_traits::FromPrimitive>(a: &FilteredPoint<T>, b: &FilteredPoint<T>, c: T) -> T {
@@ -347,33 +347,33 @@ fn segment_vector<T: Float>(h: &[TurningPoint<T>], i: usize) -> (T, T) {
     }
 }
 
-fn is_180_turn_vec<T: Float + num_traits::FromPrimitive>(v1: (T, T), v2: (T, T)) -> bool {
+fn is_180_turn_vec<T: Float + num_traits::FromPrimitive>(v1: (T, T), v2: (T, T)) -> Result<bool> {
     let (dx1, dy1) = v1;
     let (dx2, dy2) = v2;
 
     let dp = dx1 * dx2 + dy1 * dy2;
     if dp >= T::zero() {
-        return false;
+        return Ok(false);
     }
 
     let l1_sq = dx1 * dx1 + dy1 * dy1;
     let l2_sq = dx2 * dx2 + dy2 * dy2;
 
-    let threshold = T::from(0.75).unwrap();
-    (dp * dp) > threshold * (l1_sq * l2_sq)
+    let threshold = T::from(0.75).ok_or_else(|| AnnotatorError::MiscError("Numeric cast failed".into()))?;
+    Ok((dp * dp) > threshold * (l1_sq * l2_sq))
 }
 
-fn is_rastering<T: Float + num_traits::FromPrimitive>(h: &[TurningPoint<T>], i: usize, median_hatch_sq: T) -> bool {
+fn is_rastering<T: Float + num_traits::FromPrimitive>(h: &[TurningPoint<T>], i: usize, median_hatch_sq: T) -> Result<bool> {
     let tp = &h[i];
 
-    let max_jump_sq = (T::from(100.0).unwrap() * median_hatch_sq).max(T::one());
+    let max_jump_sq = (T::from(100.0).ok_or_else(|| AnnotatorError::MiscError("Numeric cast failed".into()))? * median_hatch_sq).max(T::one());
     if tp.dist_prev_sq > max_jump_sq {
-        return false;
+        return Ok(false);
     }
 
-    let half = T::from(0.5).unwrap();
+    let half = T::from(0.5).ok_or_else(|| AnnotatorError::MiscError("Numeric cast failed".into()))?;
     if tp.hatch_dist_sq < half * tp.dist_prev_sq {
-        return false;
+        return Ok(false);
     }
 
     let mut flip_prev = false;
@@ -383,15 +383,15 @@ fn is_rastering<T: Float + num_traits::FromPrimitive>(h: &[TurningPoint<T>], i: 
         let v_curr = segment_vector(h, i);
         if i > 1 {
             let v_prev = segment_vector(h, i - 1);
-            flip_prev = is_180_turn_vec(v_prev, v_curr);
+            flip_prev = is_180_turn_vec(v_prev, v_curr)?;
         }
         if i + 1 < h.len() {
             let v_next = segment_vector(h, i + 1);
-            flip_next = is_180_turn_vec(v_curr, v_next);
+            flip_next = is_180_turn_vec(v_curr, v_next)?;
         }
     }
 
-    flip_prev || flip_next
+    Ok(flip_prev || flip_next)
 }
 
 /// Annotates in-memory PBF raster scanline data.
@@ -417,8 +417,8 @@ pub fn annotate_scanlines<T: Float + num_traits::FromPrimitive + Send + Sync>(
     let x_slice = x.as_slice().ok_or_else(|| AnnotatorError::MiscError("x array must be contiguous".to_string()))?;
     let y_slice = y.as_slice().ok_or_else(|| AnnotatorError::MiscError("y array must be contiguous".to_string()))?;
 
-    let x_collapsed = collapse_x(x_slice, y_slice);
-    let y_collapsed = collapse_y(&x_collapsed);
+    let x_collapsed = collapse_x(x_slice, y_slice)?;
+    let y_collapsed = collapse_y(&x_collapsed)?;
 
     let n = y_collapsed.len();
     let mut set_a = Vec::new();
@@ -451,8 +451,8 @@ pub fn annotate_scanlines<T: Float + num_traits::FromPrimitive + Send + Sync>(
                 let current_fp = &y_collapsed[index];
 
                 if d[index] < T::zero() {
-                    let last_a = set_a.last().unwrap();
-                    let last_b = set_b.last().unwrap();
+                    let last_a = set_a.last().ok_or_else(|| AnnotatorError::MiscError("set_a empty".into()))?;
+                    let last_b = set_b.last().ok_or_else(|| AnnotatorError::MiscError("set_b empty".into()))?;
                     let dist_sq = dist_fp_sq(last_a, current_fp);
                     let h_dist_sq = hatch_dist_sq(last_b, last_a, current_fp);
 
@@ -466,8 +466,8 @@ pub fn annotate_scanlines<T: Float + num_traits::FromPrimitive + Send + Sync>(
                         end_idx: current_fp.end_idx,
                     });
                 } else {
-                    let last_a = set_a.last().unwrap();
-                    let last_b = set_b.last().unwrap();
+                    let last_a = set_a.last().ok_or_else(|| AnnotatorError::MiscError("set_a empty".into()))?;
+                    let last_b = set_b.last().ok_or_else(|| AnnotatorError::MiscError("set_b empty".into()))?;
                     let dist_sq = dist_fp_sq(last_b, current_fp);
                     let h_dist_sq = hatch_dist_sq(last_b, last_a, current_fp);
 
@@ -503,9 +503,9 @@ pub fn annotate_scanlines<T: Float + num_traits::FromPrimitive + Send + Sync>(
     h.sort_by_key(|tp| tp.y_idx);
 
     let median_hatch_sq = if h.is_empty() {
-        T::from(0.01).unwrap()
+        T::from(0.01).ok_or_else(|| AnnotatorError::MiscError("Numeric cast failed".into()))?
     } else {
-        let thresh = T::from(1e-8).unwrap();
+        let thresh = T::from(1e-8).ok_or_else(|| AnnotatorError::MiscError("Numeric cast failed".into()))?;
         let mut hatch_dists: Vec<T> = h
             .iter()
             .map(|tp| tp.hatch_dist_sq)
@@ -513,7 +513,7 @@ pub fn annotate_scanlines<T: Float + num_traits::FromPrimitive + Send + Sync>(
             .collect();
 
         if hatch_dists.is_empty() {
-            T::from(0.01).unwrap()
+            T::from(0.01).ok_or_else(|| AnnotatorError::MiscError("Numeric cast failed".into()))?
         } else {
             let mid = hatch_dists.len() / 2;
             let (_, median, _) = hatch_dists
@@ -528,7 +528,7 @@ pub fn annotate_scanlines<T: Float + num_traits::FromPrimitive + Send + Sync>(
     let mut last_turn_start = 0;
 
     for i in 1..h.len() {
-        if is_rastering(&h, i, median_hatch_sq) {
+        if is_rastering(&h, i, median_hatch_sq)? {
             let mid = h[i].start_idx + (h[i].end_idx - h[i].start_idx) / 2;
 
             if !in_raster_block {
