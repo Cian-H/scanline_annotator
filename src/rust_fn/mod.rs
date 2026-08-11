@@ -150,8 +150,8 @@ fn collapse_x<T: Float + num_traits::FromPrimitive + Send + Sync>(
 
     for sub in sub_results {
         for pt in sub {
-            if let Some(last) = merged.last_mut()
-                && (pt.x - last.x).abs() < eps {
+            if let Some(last) = merged.last_mut() {
+                if (pt.x - last.x).abs() < eps {
                     let total_count = (last.end_idx - last.start_idx + 1) as f64;
                     let pt_count = (pt.end_idx - pt.start_idx + 1) as f64;
                     let new_count = total_count + pt_count;
@@ -163,6 +163,7 @@ fn collapse_x<T: Float + num_traits::FromPrimitive + Send + Sync>(
                     last.end_idx = pt.end_idx;
                     continue;
                 }
+            }
             merged.push(pt);
         }
     }
@@ -285,8 +286,8 @@ fn collapse_y<T: Float + num_traits::FromPrimitive + Send + Sync>(
 
     for sub in sub_results {
         for pt in sub {
-            if let Some(last) = merged.last_mut()
-                && (pt.y - last.y).abs() < eps {
+            if let Some(last) = merged.last_mut() {
+                if (pt.y - last.y).abs() < eps {
                     let total_count = (last.end_idx - last.start_idx + 1) as f64;
                     let pt_count = (pt.end_idx - pt.start_idx + 1) as f64;
                     let new_count = total_count + pt_count;
@@ -298,6 +299,7 @@ fn collapse_y<T: Float + num_traits::FromPrimitive + Send + Sync>(
                     last.end_idx = pt.end_idx;
                     continue;
                 }
+            }
             merged.push(pt);
         }
     }
