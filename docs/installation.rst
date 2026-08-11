@@ -87,7 +87,7 @@ Common Issues
 
 **Performance Issues**: The library uses parallel processing by default.
 If you encounter memory issues with very large datasets, consider
-processing files in smaller batches.
+processing your data arrays in chunks.
 
 **Rust Compilation Errors**: Make sure you have a recent version of Rust
 installed. The minimum supported version is 1.70.

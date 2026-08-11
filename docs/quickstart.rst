@@ -9,131 +9,76 @@ just a few minutes.
  Basic Usage
 *************
 
-Reading All Layers from a Directory
-===================================
+In-Memory Scanline Annotation
+=============================
 
-The most common use case is reading all layer files from a directory:
+The most common use case is feeding 1D coordinate arrays to the library
+for scanline classification. The arrays can be created directly from
+parsed trajectory files or any standard Python processing step.
 
 .. code:: python
 
-   import scanline_annotator as ral
+   import scanline_annotator
    import numpy as np
 
-   # Read all .pcd files from a directory
-   data = ral.read_layers("/path/to/your/layer/files/")
+   # 1D coordinate arrays (float64 or float32)
+   x = np.array([0.0, 0.1, 0.2, 0.2, 0.1, 0.0], dtype=np.float64)
+   y = np.array([0.0, 0.0, 0.0, 0.1, 0.1, 0.1], dtype=np.float64)
 
-   print(f"Loaded {data.shape[0]} data points")
-   print(f"Data shape: {data.shape}")
-   print(f"Columns: [x, y, z, data1, data2]")
+   # The library automatically groups points belonging to parallel raster lines
+   scanline_ids = scanline_annotator.annotate_scanlines(x, y)
 
-Reading Specific Files
-======================
-
-If you want to read only specific layer files:
-
-.. code:: python
-
-   import scanline_annotator as ral
-
-   # List of specific files to read
-   files = ["/path/to/0.1.pcd", "/path/to/0.2.pcd", "/path/to/0.3.pcd"]
-
-   data = ral.read_selected_layers(files)
-
-Reading a Single Layer
-======================
-
-For processing individual layers:
-
-.. code:: python
-
-   import scanline_annotator as ral
-
-   # Read just one layer file
-   layer_data = ral.read_layer("/path/to/0.01.pcd")
-
-   # Extract coordinates
-   x_coords = layer_data[:, 0]
-   y_coords = layer_data[:, 1]
-   z_coords = layer_data[:, 2]
+   print(f"Assigned IDs: {scanline_ids}")
 
 ***********************
  Working with the Data
 ***********************
 
-Understanding the Data Format
-=============================
+Understanding the Output
+========================
 
-All functions return NumPy arrays with 5 columns:
+The function ``annotate_scanlines(x, y)`` returns a NumPy array with the
+same length as the input arrays. The returned array has type ``int32``.
 
--  **Column 0**: X coordinates (corrected)
--  **Column 1**: Y coordinates (corrected)
--  **Column 2**: Z coordinates (layer height)
--  **Column 3**: Original data column 3
--  **Column 4**: Original data column 4
+-  **Scanline IDs**: Continuous blocks of raster tracks are assigned a
+   positive integer ID (e.g., 1, 2, 3).
 
-The X and Y coordinates are automatically corrected using the
-calibration formulas built into the library.
+-  **Non-scanline Points**: Transition tracks, contour passes, or jump
+   vectors that do not match rastering topography are marked with a
+   value of ``-1``.
 
 Example: Basic Data Analysis
 ============================
 
 .. code:: python
 
-   import scanline_annotator as ral
+   import scanline_annotator
    import numpy as np
    import matplotlib.pyplot as plt
 
-   # Load data
-   data = ral.read_layers("/path/to/layers/")
+   # Load your large real-world dataset
+   # For example, np.load('trajectory.npz')
+   x = np.random.rand(100_000)
+   y = np.random.rand(100_000)
 
-   # Basic statistics
-   print(f"X range: {data[:, 0].min():.2f} to {data[:, 0].max():.2f}")
-   print(f"Y range: {data[:, 1].min():.2f} to {data[:, 1].max():.2f}")
-   print(f"Z range: {data[:, 2].min():.2f} to {data[:, 2].max():.2f}")
+   # Annotate
+   labels = scanline_annotator.annotate_scanlines(x, y)
 
-   # Plot layer distribution
-   unique_z = np.unique(data[:, 2])
-   layer_counts = [np.sum(data[:, 2] == z) for z in unique_z]
+   # Filter out non-scanline points
+   raster_mask = labels != -1
 
-   plt.figure(figsize=(10, 6))
-   plt.plot(unique_z, layer_counts)
-   plt.xlabel("Layer Height (Z)")
-   plt.ylabel("Number of Points")
-   plt.title("Points per Layer")
-   plt.show()
+   print(f"Total points: {len(x)}")
+   print(f"Raster points: {np.sum(raster_mask)}")
 
-Example: Processing by Layer
-============================
+   # Plot the first isolated scanline
+   if np.any(labels == 1):
+       scanline_1_x = x[labels == 1]
+       scanline_1_y = y[labels == 1]
 
-.. code:: python
-
-   import scanline_annotator as ral
-   import numpy as np
-
-   # Read data
-   data = ral.read_layers("/path/to/layers/")
-
-   # Group by Z coordinate (layer)
-   unique_z = np.unique(data[:, 2])
-
-   layer_stats = []
-   for z in unique_z:
-       layer_mask = data[:, 2] == z
-       layer_points = data[layer_mask]
-
-       stats = {
-           "z": z,
-           "point_count": len(layer_points),
-           "x_mean": layer_points[:, 0].mean(),
-           "y_mean": layer_points[:, 1].mean(),
-           "data1_mean": layer_points[:, 3].mean(),
-           "data2_mean": layer_points[:, 4].mean(),
-       }
-       layer_stats.append(stats)
-
-   # Convert to structured array for easier analysis
-   layer_stats = np.array(layer_stats)
+       plt.figure(figsize=(10, 6))
+       plt.plot(scanline_1_x, scanline_1_y, marker='o')
+       plt.title("Scanline #1")
+       plt.show()
 
 ******************
  Performance Tips
@@ -142,49 +87,42 @@ Example: Processing by Layer
 Parallel Processing
 ===================
 
-The library automatically uses parallel processing for multiple files.
-For best performance:
-
--  Use ``read_layers()`` for directories with many files
--  The library will automatically use all available CPU cores
--  Larger numbers of files will see better speedup
+The library automatically utilizes Rayon for parallel processing when
+collapsing array dimensions. For very large arrays (e.g. over 500,000
+points), the workload is distributed across all available CPU cores.
 
 Memory Usage
 ============
 
-For very large datasets:
-
--  Consider processing files in batches if memory is limited
--  Use ``read_selected_layers()`` to process subsets
--  The library streams data efficiently, but the final arrays are held
-   in memory
-
-File Organization
-=================
-
-For optimal performance:
-
--  Keep layer files in a single directory when using ``read_layers()``
--  Use consistent naming (the Z coordinate is extracted from the
-   filename)
--  Ensure files are properly formatted space-delimited text
+The algorithm operates efficiently without deep copies where possible,
+but generating the output array and some internal spatial data
+structures requires RAM proportional to the size of your input arrays. A
+typical 3.5 million point dataset will take about 15-20 MB of auxiliary
+memory during processing.
 
 ****************
  Error Handling
 ****************
 
-The library provides detailed error messages for common issues:
+The library provides structured error bubbling from Rust directly into
+Python exceptions:
 
 .. code:: python
 
-   import scanline_annotator as ral
+   import scanline_annotator
+   import numpy as np
 
    try:
-       data = ral.read_layers("/path/to/layers/")
-   except IOError as e:
-       print(f"File read error: {e}")
-   except RuntimeError as e:
+       # Providing unequal length arrays
+       x = np.array([0.0, 1.0])
+       y = np.array([0.0])
+       labels = scanline_annotator.annotate_scanlines(x, y)
+   except ValueError as e:
+       # "Miscellaneous Error: Input x and y length mismatch: 2 vs 1"
        print(f"Processing error: {e}")
+   except TypeError as e:
+       # e.g., passing int arrays instead of float
+       print(f"Type error: {e}")
 
 ************
  Next Steps

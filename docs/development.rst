@@ -222,10 +222,9 @@ The library is structured in two main components:
 Rust Core (``src/rust_fn/``)
 ============================
 
--  **High-performance file I/O** using CSV reader
 -  **Parallel processing** with Rayon
 -  **Memory-efficient array operations** with ndarray
--  **Coordinate correction algorithms**
+-  **Adaptive scanline topology turning algorithms**
 
 Python Bindings (``src/lib.rs``)
 ================================
@@ -238,10 +237,9 @@ Python Bindings (``src/lib.rs``)
 Performance Considerations
 ==========================
 
--  File I/O is the primary bottleneck
+-  Memory bandwidth and array allocation are the primary bottlenecks
 -  Parallel processing scales well with core count
 -  Memory usage is proportional to dataset size
--  Coordinate corrections use vectorized operations
 
 **************************
  Common Development Tasks

@@ -1,54 +1,58 @@
-#####################
+####################
  scanline_annotator
-#####################
+####################
 
 .. image:: https://github.com/Cian-H/scanline_annotator/workflows/CI/badge.svg
-  :target: https://github.com/Cian-H/scanline_annotator/actions/workflows/CI.yml
+   :target: https://github.com/Cian-H/scanline_annotator/actions/workflows/CI.yml
 
 .. image:: https://github.com/Cian-H/scanline_annotator/workflows/Python/badge.svg
-  :target: https://github.com/Cian-H/scanline_annotator/actions/workflows/Python.yml
+   :target: https://github.com/Cian-H/scanline_annotator/actions/workflows/Python.yml
 
 .. image:: https://github.com/Cian-H/scanline_annotator/workflows/Rust/badge.svg
-  :target: https://github.com/Cian-H/scanline_annotator/actions/workflows/Rust.yml
+   :target: https://github.com/Cian-H/scanline_annotator/actions/workflows/Rust.yml
 
 .. image:: https://img.shields.io/pypi/dm/scanline-annotator.svg
-  :target: https://pypi.python.org/pypi/scanline-annotator
+   :target: https://pypi.python.org/pypi/scanline-annotator
 
 .. image:: https://img.shields.io/github/tag/Cian-H/scanline_annotator.svg
-  :target: https://github.com/Cian-H/scanline_annotator/releases
+   :target: https://github.com/Cian-H/scanline_annotator/releases
 
 .. image:: https://img.shields.io/github/license/Cian-H/scanline_annotator.svg
-  :target: https://github.com/Cian-H/scanline_annotator/blob/main/LICENSE
+   :target: https://github.com/Cian-H/scanline_annotator/blob/main/LICENSE
 
 .. image:: https://readthedocs.org/projects/scanline-annotator/badge/?version=latest
-  :target: https://scanline-annotator.readthedocs.io/en/latest/?badge=latest
+   :target: https://scanline-annotator.readthedocs.io/en/latest/?badge=latest
 
 .. image:: https://coveralls.io/repos/github/Cian-H/scanline_annotator/badge.svg?branch=main
-  :target: https://coveralls.io/github/Cian-H/scanline_annotator?branch=main
-
+   :target: https://coveralls.io/github/Cian-H/scanline_annotator?branch=main
 
 .. image:: https://img.shields.io/badge/code%20style-Ruff-D7FF64.svg
-  :target: https://github.com/astral-sh/ruff
+   :target: https://github.com/astral-sh/ruff
 
 ----
 
-A high-performance library for processing and annotating Powder Bed Fusion (PBF) raster scanlines in-memory.
+A high-performance library for processing and annotating Powder Bed
+Fusion (PBF) raster scanlines in-memory.
 
 ##########
  Overview
 ##########
 
-``scanline_annotator`` is a Python library for fast in-memory annotation of raster scanlines from 2D coordinate paths.
-It uses dynamic angular topology and median hatch spacing thresholding to adaptively classify scanlines regardless of part orientation.
-It is built with Rust for maximum performance and uses PyO3 for seamless NumPy integration.
+``scanline_annotator`` is a Python library for fast in-memory annotation
+of raster scanlines from 2D coordinate paths. It uses dynamic angular
+topology and median hatch spacing thresholding to adaptively classify
+scanlines regardless of part orientation. It is built with Rust for
+maximum performance and uses PyO3 for seamless NumPy integration.
 
 ##########
  Features
 ##########
 
 -  **Fast**: Built with Rust for high-performance data processing.
--  **Adaptive**: Uses angular topology analysis to dynamically classify scanlines without hardcoded length constraints.
--  **Parallel**: Leverages Rayon for multi-threaded dimensional collapse logic.
+-  **Adaptive**: Uses angular topology analysis to dynamically classify
+   scanlines without hardcoded length constraints.
+-  **Parallel**: Leverages Rayon for multi-threaded dimensional collapse
+   logic.
 -  **Simple**: Zero-copy NumPy array input/output via PyO3.
 
 ###############
