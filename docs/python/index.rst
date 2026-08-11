@@ -21,10 +21,5 @@ This section contains the complete Python API reference for
 The library includes comprehensive type stubs for full IDE support and
 type checking.
 
-All functions return NumPy arrays with the following structure:
-
--  **Column 0**: X coordinates (corrected)
--  **Column 1**: Y coordinates (corrected)
--  **Column 2**: Z coordinates (layer height)
--  **Column 3**: Pyrometer 1 readings
--  **Column 4**: Pyrometer 2 readings
+All functions return NumPy arrays with a 1D sequence of `int32` scanline
+assignments.
