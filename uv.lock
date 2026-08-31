@@ -883,7 +883,7 @@ dev = [
 ]
 docs = [
     { name = "myst-parser", specifier = ">=4.0.1" },
-    { name = "pydata-sphinx-theme", specifier = ">=0.16.1,<0.21.0" },
+    { name = "pydata-sphinx-theme", specifier = ">=0.16.1,<0.22.0" },
     { name = "sphinx", specifier = ">=8.2.3" },
     { name = "sphinx-autobuild", specifier = ">=2024.10.3,<2026.0.0" },
     { name = "sphinx-autodoc-typehints", specifier = ">=3.2.0" },
