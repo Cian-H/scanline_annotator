@@ -948,7 +948,7 @@ dev = [
     { name = "maturin", specifier = ">=1.8.6" },
     { name = "pytest", specifier = ">=8.3.5,<10.0.0" },
     { name = "pytest-cov", specifier = ">=6.1.1,<8.0.0" },
-    { name = "ruff", specifier = ">=0.11.11,<0.17.0" },
+    { name = "ruff", specifier = ">=0.11.11,<0.18.0" },
     { name = "ty", specifier = ">=0.0.51" },
 ]
 docs = [
